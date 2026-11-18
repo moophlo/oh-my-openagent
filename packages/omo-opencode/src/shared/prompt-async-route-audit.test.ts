@@ -49,6 +49,14 @@ const RAW_PROMPT_ALLOWLIST = new Map<string, string>([
     "binds SDK Session.promptAsync into a narrow facade consumed only by gate-routed unstable-agent-babysitter dispatch; performs no direct dispatch itself",
   ],
   [
+    path.join(SOURCE_ROOT, "opencode-v2", "legacy-client.ts"),
+    "terminal native transport behind the original V1 client facade: existing internal callers still enter the shared gate; this adapter converts accepted V1 dispatch to native session.prompt with delivery: queue, and waits separately for synchronous completion instead of recursively entering the V1 gate",
+  ],
+  [
+    path.join(SOURCE_ROOT, "opencode-v2", "domains.ts"),
+    "admits an explicitly invoked native slash command after command.execute.before, preserving the host-supplied command delivery and attachments; user-command admission uses the V2 host inbox, not the plugin-initiated V1 continuation gate",
+  ],
+  [
     path.join(WORKSPACE_ROOT, "packages", "senpi-task", "src", "runners", "in-process", "child-handle.ts"),
     "drives a senpi CHILD AgentSession.prompt for spawned subagent turns; senpi-task cannot reach OpenCode session APIs (opencode-coupling audit) so the main-session injection invariant does not apply",
   ],
@@ -57,6 +65,10 @@ const RAW_PROMPT_ALLOWLIST = new Map<string, string>([
     "child-process test fixture run only by hand-browser-placement.test.ts; prompts an engine Agent wired to an in-process hand and never reaches an OpenCode session, so the main-session injection invariant does not apply",
   ],
 ])
+
+function isRawPromptBoundary(filePath: string): boolean {
+  return PROMPT_GATE_FILES.has(filePath) || RAW_PROMPT_ALLOWLIST.has(filePath)
+}
 
 async function listSourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true })
@@ -349,6 +361,27 @@ function findPromptRetryCallsWithoutQueueBehaviorInSourceFile(sourceFile: ts.Sou
 }
 
 describe("production prompt injection routes", () => {
+  test.each([
+    ["opencode-v2/legacy-client.ts", true],
+    ["opencode-v2/domains.ts", true],
+    ["opencode-v2/hooks.ts", false],
+    ["opencode-v2/new-continuation.ts", false],
+  ] as const)(
+    "#given native prompt access in %s #when audited #then only its exact transport boundary is exempt",
+    async (relativePath, allowed) => {
+      // given
+      const snippet = "await context.session.prompt({ sessionID, text, delivery: 'queue' })"
+
+      // when
+      const detected = await detectRawPromptInSnippet(snippet)
+      const boundary = isRawPromptBoundary(path.join(SOURCE_ROOT, relativePath))
+
+      // then
+      expect(detected).toBe(true)
+      expect(boundary).toBe(allowed)
+    },
+  )
+
   test("#given a destructuring promptAsync reference #when audit scans snippet #then it is flagged", async () => {
     // given
     const snippet = "const { promptAsync } = client.session"
@@ -407,12 +440,12 @@ await dispatchInternalPrompt(options)
     expect(offenders).toEqual([3])
   })
 
-  test("#given production TypeScript sources #when prompt routes are audited #then only the shared gate may call raw OpenCode prompt APIs", async () => {
+  test("#given production TypeScript sources #when prompt routes are audited #then only the shared gate and explicit transport boundaries may reference raw OpenCode prompt APIs", async () => {
     // given
     const files = [...(await listSourceFiles(SOURCE_ROOT)), ...(await listPackageSourceFiles())]
     const candidates = await Promise.all(
       files.map(async (filePath) => {
-        if (PROMPT_GATE_FILES.has(filePath) || RAW_PROMPT_ALLOWLIST.has(filePath)) {
+        if (isRawPromptBoundary(filePath)) {
           return null
         }
         const contents = await readFile(filePath, "utf8")

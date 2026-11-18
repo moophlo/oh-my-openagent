@@ -4,9 +4,15 @@ import type { Hooks } from "@opencode-ai/plugin"
 import type { LoadedSkill } from "../features/opencode-skill-loader/types"
 import { permissionAction } from "./tools"
 import { toLegacyModel } from "./legacy-models"
+import { getAgentConfigKey } from "../shared/agent-display-names"
 
 export type LegacyConfig = Record<string, unknown>
 const nativeCommands = new WeakMap<LegacyConfig, ReadonlySet<string>>()
+type NativePermissionSnapshot = {
+  exact: ReadonlyMap<string, ReturnType<typeof permissions>>
+  canonical: ReadonlyMap<string, ReturnType<typeof permissions>>
+}
+const nativePermissions = new WeakMap<LegacyConfig, NativePermissionSnapshot>()
 export function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
@@ -92,6 +98,13 @@ export async function seedLegacyConfig(context: Context): Promise<LegacyConfig> 
     ),
   }
   nativeCommands.set(config, new Set(rows(commands).map((command) => command.name)))
+  const exact = new Map(rows(agents).map((agent) => [agent.id, agent.permissions.map((rule) => ({ ...rule }))]))
+  const canonical = new Map<string, ReturnType<typeof permissions>>()
+  for (const [id, rules] of exact) {
+    const key = getAgentConfigKey(id)
+    if (!canonical.has(key) || id === key) canonical.set(key, rules)
+  }
+  nativePermissions.set(config, { exact, canonical })
   return config
 }
 
@@ -102,8 +115,20 @@ export async function registerDomains(
   skills: LoadedSkill[],
   registrations: Registration[],
 ): Promise<void> {
+  const snapshot = nativePermissions.get(config)
+  const beforeNativeConfig = new Map<string, ReturnType<typeof permissions>>()
+  // The original config hook copies the visible entry (including its name) to a
+  // hidden canonical alias. That existing relationship also covers displayName
+  // overrides unknown to the fixed display-name registry.
+  const displayAliases = new Map<string, string>()
+  for (const [id, source] of entries(config.agent)) {
+    if (source.hidden === true && typeof source.name === "string" && source.name !== id) {
+      displayAliases.set(source.name, getAgentConfigKey(id))
+    }
+  }
   registrations.push(
     await context.agent.transform((editor) => {
+      beforeNativeConfig.clear()
       for (const [id, source] of entries(config.agent)) {
         if (source.disable === true) {
           editor.remove(id)
@@ -127,8 +152,14 @@ export async function registerDomains(
           )
           target.permissions = [
             ...permissions(globalToolRules, config.permission, toolRules, source.permission),
-            ...draft.permissions,
+            ...(snapshot?.exact.get(id) ??
+              snapshot?.canonical.get(displayAliases.get(id) ?? getAgentConfigKey(id)) ??
+              draft.permissions),
           ]
+          beforeNativeConfig.set(
+            id,
+            draft.permissions.map((rule) => ({ ...rule })),
+          )
           draft.request.body = { ...draft.request.body, ...record(source.options) }
           for (const [from, to] of [
             ["temperature", "temperature"],
@@ -143,6 +174,52 @@ export async function registerDomains(
       if (typeof config.default_agent === "string") editor.default(config.default_agent)
     }),
   )
+  // Native config.agent is registered after external plugins in 2.3.2. The
+  // first session preflight runs after host initialization and installs this
+  // final transform after those native policies, without a timer or a second
+  // event stream. Permission.assert resolves the live Agent state at each call.
+  const sameRule = (left: ReturnType<typeof permissions>[number], right: ReturnType<typeof permissions>[number]) =>
+    left.action === right.action && left.resource === right.resource && left.effect === right.effect
+  const addedRules = (id: string, current: ReturnType<typeof permissions>) => {
+    const before = beforeNativeConfig.get(id) ?? []
+    if (current.length < before.length || before.some((rule, index) => !sameRule(rule, current[index]))) {
+      throw new Error(`Native agent policy replaced OMO's prefix for ${id}`)
+    }
+    return current.slice(before.length)
+  }
+  let disposed = false
+  let tail: Promise<Registration> | undefined
+  const ensureNativeAliasPolicy = async () => {
+    if (disposed) throw new Error("OpenCode V2 alias policy is disposed")
+    tail ??= context.agent.transform((editor) => {
+      for (const [id] of entries(config.agent)) {
+        const canonical = displayAliases.get(id) ?? getAgentConfigKey(id)
+        if (canonical === id) continue
+        const native = editor.get(canonical)
+        const target = editor.get(id)
+        if (!native || !target) continue
+        const inherited = addedRules(canonical, native.permissions)
+        const exact = addedRules(id, target.permissions)
+        // Native config appends global rules to both entries before exact-ID
+        // rules. Replay that shared prefix once, then keep an exact visible
+        // definition last so it retains the native precedence over fallback.
+        let shared = 0
+        while (shared < inherited.length && shared < exact.length && sameRule(inherited[shared], exact[shared]))
+          shared++
+        target.permissions = [...(beforeNativeConfig.get(id) ?? []), ...inherited, ...exact.slice(shared)]
+      }
+    })
+    await tail
+  }
+  registrations.push(await context.session.hook("prompt", ensureNativeAliasPolicy))
+  registrations.push(await context.session.hook("context", ensureNativeAliasPolicy))
+  registrations.push({
+    dispose: async () => {
+      disposed = true
+      if (tail) await (await tail).dispose()
+      beforeNativeConfig.clear()
+    },
+  })
   registrations.push(
     await context.provider.transform((editor) => {
       for (const [id, source] of entries(config.provider)) {

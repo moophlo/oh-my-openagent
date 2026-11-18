@@ -20,6 +20,7 @@ export async function startProvider() {
     const branch = all.includes("OMO_QA_BG_PARENT") ? "background"
       : all.includes("OMO_QA_DELEGATE") ? "delegate"
       : latest.includes("OMO_QA_CHILD") ? "child"
+      : latest.includes("OMO_QA_AGENT_DENY") ? "agent-deny"
       : latest.includes("OMO_QA_DENY") ? "deny"
       : latest.includes("OMO_QA_UNKNOWN") ? "unknown"
       : latest.includes("OMO_QA_READ") ? "read"
@@ -52,6 +53,7 @@ export async function startProvider() {
     }
     if (branch === "skill" && count === 0) call = { name: "skill", arguments: JSON.stringify({ name: "qa-proof" }) }
     if (branch === "deny" && count === 0) call = { name: "skill", arguments: JSON.stringify({ name: "qa-proof" }) }
+    if (branch === "agent-deny" && count === 0) call = { name: "skill", arguments: JSON.stringify({ name: "qa-denied-proof" }) }
     if (branch === "child" && latest.includes("background")) await new Promise((resolve) => setTimeout(resolve, 1200))
     const id = `chatcmpl-qa-${requests.length}`
     const base = { id, object: "chat.completion.chunk", created: 1, model: "qa-model" }

@@ -52,6 +52,7 @@ try {
   // an explicitly supplied alternate bundle.
   box.config.plugins = [baseline || options.includes("--entry") ? localPlugin : repo]
   box.config.experimental = { todo: true }
+  if (!baseline) box.config.agents = { sisyphus: { permissions: [{ action: "skill", resource: "qa-denied-proof", effect: "deny" }] } }
   await writeFile(join(box.project, "opencode.json"), JSON.stringify(box.config))
   host = await startHost(bin, box, evidence, label)
   await writeFile(join(evidence, `${label}-host.json`), JSON.stringify({ url: host.url, sandbox: box.root, project: box.project }, null, 2))
@@ -119,6 +120,13 @@ try {
     check("original task, skill and background tools available", () => { for (const tool of ["task", "skill", "background_output", "background_cancel"]) assert.ok(toolNames.has(tool), tool) })
     const skill = await scenario("skill", "OMO_QA_SKILL: load the local qa-proof skill")
     check("original skill tool returns discovered skill body", () => assert.match(skill.results, /OMO_QA_SKILL_BODY/))
+    const nativeDenied = await scenario("native-agent-denial", "OMO_QA_AGENT_DENY: load qa-denied-proof with the default agent")
+    check("native per-agent permission denies the visible default Sisyphus alias", () => {
+      assert.ok(nativeDenied.context.some((message) => message.type === "assistant" && /^Sisyphus - /i.test(message.agent)))
+      assert.ok(provider.requests.some((request) => request.branch === "agent-deny" && request.tools.includes("skill")))
+      assert.doesNotMatch(nativeDenied.results, /OMO_QA_AGENT_DENIED_BODY/)
+      assert.ok(nativeDenied.tools.some((tool) => tool.name === "skill" && tool.state.error?.type === "permission.rejected"))
+    })
     const delegation = await scenario("delegation", "OMO_QA_DELEGATE: delegate to explore")
     const children = (await request(`/api/session?parentID=${encodeURIComponent(delegation.info.id)}`)).data
     check("delegation creates a real child with parentID", () => assert.ok(children.some((child) => child.parentID === delegation.info.id)))
@@ -158,6 +166,8 @@ try {
   if (host) {
     try {
       const request = api(host.url)
+      const finalAgents = (await request(`/api/agent?location[directory]=${encodeURIComponent(box.project)}`)).data
+      await writeFile(join(evidence, `${label}-agents-final.json`), JSON.stringify(finalAgents, null, 2))
       const sessions = (await request("/api/session?limit=30")).data
       const contexts = {}
       for (const session of sessions) contexts[session.id] = (await request(`/api/session/${session.id}/context`)).data

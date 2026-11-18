@@ -33,6 +33,8 @@ export async function sandbox(providerURL) {
   } }
   await mkdir(join(project, ".opencode/skills/qa-proof"), { recursive: true })
   await writeFile(join(project, ".opencode/skills/qa-proof/SKILL.md"), "---\nname: qa-proof\ndescription: Local deterministic test skill\n---\nOMO_QA_SKILL_BODY\n")
+  await mkdir(join(project, ".opencode/skills/qa-denied-proof"), { recursive: true })
+  await writeFile(join(project, ".opencode/skills/qa-denied-proof/SKILL.md"), "---\nname: qa-denied-proof\ndescription: Native agent permission regression skill\n---\nOMO_QA_AGENT_DENIED_BODY\n")
   await writeFile(join(project, "qa-proof.txt"), "OMO_QA_READ_LINE\nSecond line\nThird line\n")
   const pluginConfig = { disabled_mcps: ["websearch", "context7", "grep_app", "lsp"], auto_update: false, disabled_hooks: ["auto-update-checker"], hashline_edit: true,
     agents: Object.fromEntries(["sisyphus", "hephaestus", "oracle", "librarian", "explore", "multimodal-looker", "metis", "momus", "atlas", "prometheus", "sisyphus-junior"].map((agent) => [agent, { model }])),

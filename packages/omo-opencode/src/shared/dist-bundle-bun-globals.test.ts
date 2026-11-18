@@ -1,6 +1,9 @@
 /// <reference types="bun-types" />
 
 import { existsSync } from "node:fs"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, test } from "bun:test"
 
 const DIST_INDEX = "dist/index.js"
@@ -12,6 +15,27 @@ const NODE_EXPORT_SMOKE_SCRIPT = [
   "const keys = Object.keys(mod).join(',');",
   "console.log('SMOKE_OK:' + keys);",
 ].join("\n")
+
+async function runNodeImport(node: string, script: string) {
+  const scratch = await mkdtemp(join(tmpdir(), "omo-dist-node-import-"))
+  try {
+    const proc = Bun.spawn({
+      cmd: [node, "--input-type=module", "-e", script],
+      cwd: process.cwd(),
+      env: { ...Bun.env, TMPDIR: scratch, TEMP: scratch, TMP: scratch },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    return { stdout, stderr, exitCode }
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
 
 function hasRawBunApiCall(line: string): boolean {
   RAW_BUN_API_CALL.lastIndex = 0
@@ -98,16 +122,10 @@ describe("dist bundle Bun globals", () => {
       const node = Bun.which("node")
       if (!node) return
 
-      const proc = Bun.spawn({
-        cmd: [node, "--input-type=module", "-e", "await import('./dist/index.js'); console.log('node-esm-load-ok')"],
-        cwd: process.cwd(),
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-
-      const stdout = await new Response(proc.stdout).text()
-      const stderr = await new Response(proc.stderr).text()
-      const exitCode = await proc.exited
+      const { stdout, stderr, exitCode } = await runNodeImport(
+        node,
+        "await import('./dist/index.js'); console.log('node-esm-load-ok')",
+      )
 
       expect({
         exitCode,
@@ -171,16 +189,7 @@ describe("dist bundle Bun globals", () => {
       const node = Bun.which("node")
       if (!node) return
 
-      const proc = Bun.spawn({
-        cmd: [node, "--input-type=module", "-e", NODE_EXPORT_SMOKE_SCRIPT],
-        cwd: process.cwd(),
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-
-      const stdout = await new Response(proc.stdout).text()
-      const stderr = await new Response(proc.stderr).text()
-      const exitCode = await proc.exited
+      const { stdout, stderr, exitCode } = await runNodeImport(node, NODE_EXPORT_SMOKE_SCRIPT)
       const stderrLower = stderr.toLowerCase()
 
       expect(exitCode, stderr.trim()).toBe(0)

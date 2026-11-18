@@ -83,13 +83,18 @@ function createTestPluginModule(
     initLiveServerRoute?: ReturnType<typeof mock>
     setLiveParentWakeRoutingDisabled?: ReturnType<typeof mock>
     warmLiveServerProbe?: ReturnType<typeof mock>
+    ensureTuiPluginEntry?: ReturnType<typeof mock>
+    startOmoProcessSweep?: ReturnType<typeof mock>
   } = {},
+  runtime: Parameters<typeof createPluginModule>[1] = {},
 ): ReturnType<typeof createPluginModule> {
   const {
     loadPluginConfig: loadPluginConfigOverride,
     initLiveServerRoute,
     setLiveParentWakeRoutingDisabled,
     warmLiveServerProbe,
+    ensureTuiPluginEntry,
+    startOmoProcessSweep,
   } = overrides
 
   const mockLoadPluginConfig = loadPluginConfigOverride ?? mock(() => ({}))
@@ -128,8 +133,44 @@ function createTestPluginModule(
     ...(initLiveServerRoute !== undefined ? { initLiveServerRoute } : {}),
     ...(setLiveParentWakeRoutingDisabled !== undefined ? { setLiveParentWakeRoutingDisabled } : {}),
     ...(warmLiveServerProbe !== undefined ? { warmLiveServerProbe } : {}),
-  })
+    ...(ensureTuiPluginEntry !== undefined ? { ensureTuiPluginEntry: ensureTuiPluginEntry as never } : {}),
+    ...(startOmoProcessSweep !== undefined ? { startOmoProcessSweep } : {}),
+  }, runtime)
 }
+
+describe("createPluginModule() runtime host seam", () => {
+  it.each(["opencode-v1", "opencode-v2"] as const)(
+    "keeps V1-only startup effects scoped for %s",
+    async (host) => {
+      const selfHeal = mock(() => {})
+      const sweep = mock(async () => {})
+      const route = mock(() => {})
+      const warm = mock(() => {})
+      const wakeRouting = mock(() => {})
+      const module = createTestPluginModule(
+        {
+          ensureTuiPluginEntry: selfHeal,
+          startOmoProcessSweep: sweep,
+          initLiveServerRoute: route,
+          warmLiveServerProbe: warm,
+          setLiveParentWakeRoutingDisabled: wakeRouting,
+        },
+        host === "opencode-v1" ? {} : { host },
+      )
+      await module.server(
+        {
+          directory: "/tmp/runtime-host-test",
+          client: {},
+          serverUrl: new URL("http://127.0.0.1:1"),
+        } as never,
+        {},
+      )
+      const expected = host === "opencode-v1" ? 1 : 0
+      for (const effect of [selfHeal, sweep, route, warm, wakeRouting])
+        expect(effect).toHaveBeenCalledTimes(expected)
+    },
+  )
+})
 
 describe("createPluginModule() — live-server-route wiring", () => {
   beforeEach(() => {

@@ -68,6 +68,7 @@ export type PluginModuleDeps = {
   warmLiveServerProbe: typeof warmLiveServerProbe
   loadConfigChain: typeof validatePluginConfig
   loadPluginConfig: typeof loadPluginConfig
+  ensureTuiPluginEntry: typeof ensureTuiPluginEntry
   recordPluginTelemetry: typeof recordPluginTelemetry
   initI18n: typeof initI18n
   initializeOpenClaw: typeof initializeOpenClaw
@@ -102,6 +103,7 @@ const defaultPluginModuleDeps: PluginModuleDeps = {
   warmLiveServerProbe,
   loadConfigChain: validatePluginConfig,
   loadPluginConfig,
+  ensureTuiPluginEntry,
   recordPluginTelemetry,
   initI18n,
   initializeOpenClaw,
@@ -167,8 +169,14 @@ function startupToastBody(input: {
   return undefined
 }
 
-export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): PluginModule {
+export type PluginRuntimeHost = "opencode-v1" | "opencode-v2"
+
+export function createPluginModule(
+  overrides: Partial<PluginModuleDeps> = {},
+  runtime: { readonly host?: PluginRuntimeHost } = {},
+): PluginModule {
   const deps = { ...defaultPluginModuleDeps, ...overrides }
+  const nativeV2 = runtime.host === "opencode-v2"
   let startupMigration: ReturnType<PluginModuleDeps["runOpenCodeStartupMigration"]> | undefined
   const serverPlugin: Plugin = async (input, _options): Promise<Hooks> => {
     deps.installAgentSortShim()
@@ -200,19 +208,21 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
     })
     if (toast !== undefined) showStartupToast(input.client, toast, deps.log)
 
-    // Unconditional omo process hygiene (T16): fire-and-forget family sweep,
+    // V1 process hygiene (T16): fire-and-forget family sweep,
     // throttled per-family inside the sweep functions. Never awaited and
     // never allowed to reject into startup.
-    try {
-      void deps.startOmoProcessSweep().catch((error: unknown) => {
-        deps.log("[oh-my-openagent] omo process sweep failed", {
+    if (!nativeV2) {
+      try {
+        void deps.startOmoProcessSweep().catch((error: unknown) => {
+          deps.log("[oh-my-openagent] omo process sweep failed", {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      } catch (error) {
+        deps.log("[oh-my-openagent] omo process sweep failed to start", {
           error: error instanceof Error ? error.message : String(error),
         })
-      })
-    } catch (error) {
-      deps.log("[oh-my-openagent] omo process sweep failed to start", {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      }
     }
 
     const duplicateOmoPluginCheck = deps.detectDuplicateOmoPlugin(input.directory)
@@ -236,16 +246,18 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
         error: error instanceof Error ? error.message : String(error),
       })
     }
-    try {
-      ensureTuiPluginEntry()
-    } catch (error) {
-      deps.log("[tui] tui.json self-heal failed", {
-        error: error instanceof Error ? error.message : String(error),
-      })
+    if (!nativeV2) {
+      try {
+        deps.ensureTuiPluginEntry()
+      } catch (error) {
+        deps.log("[tui] tui.json self-heal failed", {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+      deps.initLiveServerRoute({ serverUrl: input.serverUrl, directory: input.directory, inProcessClient: input.client })
+      deps.setLiveParentWakeRoutingDisabled(pluginConfig.experimental?.disable_live_parent_wake_routing === true)
+      deps.warmLiveServerProbe()
     }
-    deps.initLiveServerRoute({ serverUrl: input.serverUrl, directory: input.directory, inProcessClient: input.client })
-    deps.setLiveParentWakeRoutingDisabled(pluginConfig.experimental?.disable_live_parent_wake_routing === true)
-    deps.warmLiveServerProbe()
     const runtimeSecuritySkills = selectRuntimeSecuritySkills(pluginConfig)
     let runtimeSkillSource: Awaited<ReturnType<PluginModuleDeps["createRuntimeSkillSourceServer"]>> | undefined
     if (runtimeSecuritySkills.length > 0) {

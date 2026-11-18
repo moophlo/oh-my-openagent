@@ -15,6 +15,7 @@ async function bundle(entrypoints: string[], outdir: string, target: "bun" | "no
     outdir: resolve(root, outdir),
     target,
     format: "esm",
+    loader: { ".md": "text" },
     external: ["zod", "@opencode/*", "@opentui/*"],
   })
   if (!result.success) throw new AggregateError(result.logs, `Could not build ${entrypoints.join(", ")}`)
@@ -22,6 +23,7 @@ async function bundle(entrypoints: string[], outdir: string, target: "bun" | "no
 }
 
 await bundle(["packages/omo-opencode/src/index.ts", "packages/omo-opencode/src/tui.ts"], "dist", "bun")
+await run(process.execPath, ["script/patch-node-require-shim.ts"])
 await bundle([
   "packages/lsp-tools-mcp/src/cli.ts",
   "packages/lsp-tools-mcp/src/mcp.ts",

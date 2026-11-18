@@ -1,3 +1,5 @@
+> **Modified fork for OpenCode 2.** This repository restores the original Sisyphus plugin inside OpenCode. It is independently maintained by [moophlo](https://github.com/moophlo/oh-my-openagent), based on [code-yeongyu/oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent). Follow the [OpenCode 2 installation guide](docs/guide/opencode-v2-fork.md); the upstream native-app installer below installs a different runtime. Existing copyright and license notices remain applicable.
+
 [English](README.md) | [简体中文](README.zh-cn.md) | [日本語](README.ja.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Português (Brasil)](README.pt-br.md) | [Italiano](README.it.md)
 
 > [!NOTE]

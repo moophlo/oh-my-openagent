@@ -13,6 +13,7 @@
 | New users — what is this? | [docs/guide/overview.md](guide/overview.md) |
 | Installing OmO with the one-line installer (omo.dev/docs/install) | [docs/guide/install.md](guide/install.md) |
 | Installing the plugin | [docs/guide/installation.md](guide/installation.md) |
+| Installing this fork's Sisyphus plugin in OpenCode 2 | [docs/guide/opencode-v2-fork.md](guide/opencode-v2-fork.md) |
 | Installing the compiled binary | [docs/guide/binary-install.md](guide/binary-install.md) |
 | How agents collaborate | [docs/guide/orchestration.md](guide/orchestration.md) |
 | Picking the right model per agent | [docs/guide/agent-model-matching.md](guide/agent-model-matching.md) |

@@ -60,7 +60,7 @@ The OpenCode 2.3.2 smoke covers these behaviors:
 | --- | --- |
 | Agents | Original Sisyphus prompt registered; a session without an explicit agent runs as Sisyphus |
 | Prompt hooks | `ulw` instructions reach the actual model HTTP request |
-| Skills | Original skill tool discovers and returns a local skill; a resource-specific deny rejects execution |
+| Skills | Original skill tool returns an allowed local skill; native per-agent and per-session resource-specific denies reject execution, including canonical `sisyphus` rules on the visible default agent |
 | Delegation | Original `task` runs a real child with `parentID` and returns its output |
 | Background work | Original background completion wakes the parent and `background_output` returns the child result |
 | Read hooks | With `hashline_edit` enabled, original hashes appear in the actual native read result |
@@ -69,7 +69,7 @@ The OpenCode 2.3.2 smoke covers these behaviors:
 
 ## Scope and limits
 
-The server adapter uses the original engine rather than shortened replacement Sisyphus prompts. V2 callbacks and session records have different contracts, so behavior is tested against OpenCode 2.3.2; compatibility with future releases needs verification.
+The server adapter uses the original engine rather than shortened replacement Sisyphus prompts. V2 callbacks and session records have different contracts, so behavior is tested against OpenCode 2.3.2; compatibility with future releases needs verification. The native agent catalog can omit inherited canonical permission rules before the first session prompt; the adapter applies that inheritance before generation and tool execution.
 
 The deterministic fixture proves host and plugin wiring, routing, hook transformations, permissions and delegation mechanics. It does not evaluate the quality of real model reasoning or exercise every provider, MCP server or optional Team Mode workflow. Legacy sidebar and BTW panels are not ported to the V2 TUI; the server orchestration and standard OpenCode interface remain usable. The upstream native-app installer and npm package are not releases of this fork.
 

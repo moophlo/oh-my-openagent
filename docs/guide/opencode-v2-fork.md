@@ -6,7 +6,7 @@ OpenCode 2 changed the plugin and server APIs. Upstream's V2 entry only loaded t
 
 ## Build and register the local plugin
 
-Use Bun and OpenCode 2.3.2. From a directory where you keep source checkouts:
+Use the repository-pinned **Bun 1.4.4** and OpenCode 2.3.2. Select that Bun version with your version manager or a temporary executable; replacing your global installation is unnecessary. From a directory where you keep source checkouts:
 
 ```bash
 git clone https://github.com/moophlo/oh-my-openagent.git
@@ -16,7 +16,7 @@ bun script/build-opencode-v2.ts
 pwd
 ```
 
-The focused build emits the server and TUI bundles, the local LSP support bundles, and bundled skill assets. It does not build or install the native OmO application, Codex integration or Desktop application. Keep the checkout and its installed dependencies in place.
+The focused build emits the server and TUI bundles, the local LSP support bundles, and bundled skill assets. It materializes the pinned frontend references and browser runtime before copying them; the first build may download the pinned Git submodules. It does not build or install the native OmO application, Codex integration or Desktop application. Keep the checkout and its installed dependencies in place.
 
 Add the checkout's absolute path to `plugins` in your OpenCode `opencode.jsonc`, for example:
 
@@ -45,6 +45,14 @@ node script/qa/opencode-v2-smoke.mjs --opencode "$(command -v opencode)"
 ```
 
 The first command reproduces the upstream registration-only setup from a pinned source snapshot and saves that source with the evidence. The second runs the built fork, checks model requests and tool execution, and performs a tmux TUI boot/input smoke. Evidence is written under the ignored `.omo/evidence/20261118-opencode-v2/` directory. The script requires Node, SQLite and tmux in addition to OpenCode. `--skip-tui` runs only the server scenarios.
+
+On Linux, also check the packaged local LSP support and static skill assets:
+
+```bash
+node script/qa/opencode-v2-lsp-smoke.mjs
+```
+
+This drives the generated MCP over real Node stdio through initialization, its tool catalog and `lsp_status`, which starts the actual daemon without installing a language server or calling a model. It validates the generated frontend references and browser runtime, isolates the home/XDG/daemon directories, and records cleanup of its proxy, daemon, socket and temporary sandbox in the same evidence directory.
 
 The OpenCode 2.3.2 smoke covers these behaviors:
 

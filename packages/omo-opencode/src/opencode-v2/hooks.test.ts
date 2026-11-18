@@ -8,6 +8,11 @@ import { createToolExecuteBeforeHandler } from "../plugin/tool-execute-before"
 import { clearSessionAgent, updateSessionAgent } from "../features/claude-code-session-state"
 
 type Callback = (input: Record<string, unknown>) => Promise<void>
+function required<T>(value: T | undefined, label: string): T {
+  if (value === undefined) throw new Error(`missing ${label}`)
+  return value
+}
+
 async function harness(hooks: Partial<Hooks>) {
   const handlers = new Map<string, Callback>()
   let disposed = 0
@@ -31,8 +36,7 @@ async function harness(hooks: Partial<Hooks>) {
   await registerHooks(context as never, hooks as Hooks, registrations)
   return {
     run: async (name: string, event: Record<string, unknown>) => {
-      const handler = handlers.get(name)
-      if (!handler) throw new Error(`missing hook ${name}`)
+      const handler = required(handlers.get(name), `registered hook ${name}`)
       await handler(event)
     },
     registrations,
@@ -217,9 +221,12 @@ describe("native original hook bridge", () => {
     ]
     const view = messageView("s", native)
     expect(view.apply(view.messages)).toEqual(native)
-    const state = view.messages[1]?.parts[1]?.state as Record<string, unknown>
+    const assistant = required(view.messages[1], "assistant tool-call message")
+    const toolResult = required(view.messages[2], "tool-result message")
+    const lastUser = required(view.messages[3], "trailing user message")
+    const state = required(assistant.parts[1], "read tool-call part").state as Record<string, unknown>
     state.output = "changed"
-    const updated = view.apply([view.messages[3]!, view.messages[1]!, view.messages[2]!])
+    const updated = view.apply([lastUser, assistant, toolResult])
     expect(updated.map((message) => message.id)).toEqual(["four", "two", "three"])
     expect(updated[1]?.providerMetadata).toEqual({ proof: true })
     expect(updated[1]?.content[0]).toEqual(native[1]?.content[0])
@@ -229,7 +236,7 @@ describe("native original hook bridge", () => {
     })
     expect(updated[0]?.content[0]).toEqual(native[3]?.content[0])
     const cloned = view.apply(
-      [view.messages[1]!, view.messages[2]!].map((message) => ({
+      [assistant, toolResult].map((message) => ({
         ...message,
         parts: message.parts.map((part) =>
           part.type === "tool" ? { ...part, state: { ...(part.state as object), output: "cloned output" } } : part,
@@ -242,10 +249,10 @@ describe("native original hook bridge", () => {
     })
     const removedPair = view.apply([
       {
-        ...view.messages[1]!,
-        parts: view.messages[1]!.parts.filter((part) => part.type !== "tool"),
+        ...assistant,
+        parts: assistant.parts.filter((part) => part.type !== "tool"),
       },
-      view.messages[2]!,
+      toolResult,
     ])
     expect(removedPair).toHaveLength(1)
     expect(removedPair[0]?.content.some((part) => part.type === "tool-call" || part.type === "tool-result")).toBe(false)
